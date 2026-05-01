@@ -1,0 +1,12 @@
+# Backend
+backend/venv/
+backend/.env
+backend/__pycache__/
+*.py[cod]
+
+# Frontend (not pushed for now)
+frontend/
+
+# OS
+.DS_Store
+Thumbs.db
