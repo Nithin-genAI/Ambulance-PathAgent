@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📍 GPS Sender</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Courier New', monospace;
+      background: #0a0a0a;
+      color: #00ff88;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    h1 { font-size: 18px; margin-bottom: 20px; letter-spacing: 3px; }
+    .status {
+      width: 100%;
+      max-width: 400px;
+      background: #111;
+      border: 1px solid #1a1a2e;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .status-label {
+      font-size: 10px;
+      color: #555;
+      letter-spacing: 2px;
+      margin-bottom: 4px;
+    }
+    .status-value {
+      font-size: 20px;
+      font-weight: bold;
+    }
+    .row { display: flex; gap: 12px; width: 100%; max-width: 400px; }
+    .row .status { flex: 1; }
+    .btn {
+      width: 100%;
+      max-width: 400px;
+      padding: 18px;
+      font-size: 16px;
+      font-family: 'Courier New', monospace;
+      font-weight: bold;
+      letter-spacing: 3px;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    .btn-start {
+      background: #00ff88;
+      color: #000;
+    }
+    .btn-stop {
+      background: #ff4444;
+      color: #fff;
+    }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .log {
+      width: 100%;
+      max-width: 400px;
+      margin-top: 16px;
+      background: #111;
+      border: 1px solid #1a1a2e;
+      border-radius: 12px;
+      padding: 14px;
+      font-size: 11px;
+      color: #555;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .log-entry { margin-bottom: 4px; }
+    .log-success { color: #00ff88; }
+    .log-error { color: #ff4444; }
+    .blink { animation: blink 1s infinite; }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    #serverInput {
+      width: 100%;
+      max-width: 400px;
+      padding: 14px;
+      font-size: 14px;
+      font-family: 'Courier New', monospace;
+      background: #111;
+      border: 1px solid #1a1a2e;
+      border-radius: 12px;
+      color: #00ccff;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    #serverInput:focus { outline: none; border-color: #00ff88; }
+  </style>
+</head>
+<body>
+  <h1>🚑 GPS SENDER</h1>
+
+  <input type="text" id="serverInput" placeholder="Backend URL" />
+
+  <div class="status">
+    <div class="status-label">CONNECTION</div>
+    <div class="status-value" id="connStatus" style="color: #ff4444;">● NOT STARTED</div>
+  </div>
+
+  <div class="row">
+    <div class="status">
+      <div class="status-label">LATITUDE</div>
+      <div class="status-value" id="lat" style="font-size:16px;">—</div>
+    </div>
+    <div class="status">
+      <div class="status-label">LONGITUDE</div>
+      <div class="status-value" id="lng" style="font-size:16px;">—</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="status">
+      <div class="status-label">SPEED</div>
+      <div class="status-value" id="speed">— km/h</div>
+    </div>
+    <div class="status">
+      <div class="status-label">ACCURACY</div>
+      <div class="status-value" id="accuracy">— m</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="status">
+      <div class="status-label">SENDS</div>
+      <div class="status-value" id="sendCount" style="color: #00ccff;">0</div>
+    </div>
+    <div class="status">
+      <div class="status-label">ERRORS</div>
+      <div class="status-value" id="errorCount" style="color: #ff4444;">0</div>
+    </div>
+  </div>
+
+  <button class="btn btn-start" id="startBtn" onclick="startSending()">▶ START SENDING</button>
+  <button class="btn btn-stop" id="stopBtn" onclick="stopSending()" style="display:none;">■ STOP</button>
+
+  <div class="log" id="log"></div>
+
+  <script>
+    // Auto-detect server URL based on page host
+    const defaultUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      ? 'http://localhost:8000'
+      : `http://${window.location.hostname}:8000`;
+    document.getElementById('serverInput').value = defaultUrl;
+
+    let watchId = null;
+    let sendInterval = null;
+    let sendCount = 0;
+    let errorCount = 0;
+    let currentPos = null;
+
+    function addLog(msg, type = 'normal') {
+      const log = document.getElementById('log');
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type === 'success' ? 'log-success' : type === 'error' ? 'log-error' : ''}`;
+      entry.textContent = `${new Date().toLocaleTimeString()} → ${msg}`;
+      log.insertBefore(entry, log.firstChild);
+      // Keep only last 50 entries
+      while (log.children.length > 50) log.removeChild(log.lastChild);
+    }
+
+    async function sendGPS() {
+      if (!currentPos) return;
+
+      const serverUrl = document.getElementById('serverInput').value.replace(/\/$/, '');
+      const payload = {
+        lat: currentPos.coords.latitude,
+        lng: currentPos.coords.longitude,
+        speed: currentPos.coords.speed || 0,
+        accuracy: currentPos.coords.accuracy || 0
+      };
+
+      try {
+        const res = await fetch(`${serverUrl}/gps`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          sendCount++;
+          document.getElementById('sendCount').textContent = sendCount;
+          document.getElementById('connStatus').textContent = '● SENDING LIVE';
+          document.getElementById('connStatus').style.color = '#00ff88';
+          document.getElementById('connStatus').className = 'status-value blink';
+          addLog(`Sent: ${payload.lat.toFixed(6)}, ${payload.lng.toFixed(6)}`, 'success');
+        } else {
+          throw new Error(`HTTP ${res.status}`);
+        }
+      } catch (e) {
+        errorCount++;
+        document.getElementById('errorCount').textContent = errorCount;
+        document.getElementById('connStatus').textContent = '● SEND FAILED';
+        document.getElementById('connStatus').style.color = '#ff4444';
+        addLog(`Error: ${e.message}`, 'error');
+      }
+    }
+
+    function startSending() {
+      const serverUrl = document.getElementById('serverInput').value;
+      if (!serverUrl) {
+        addLog('Enter backend URL first!', 'error');
+        return;
+      }
+
+      if (!navigator.geolocation) {
+        addLog('Geolocation not supported in this browser', 'error');
+        return;
+      }
+
+      document.getElementById('connStatus').textContent = '● ACQUIRING GPS...';
+      document.getElementById('connStatus').style.color = '#ffcc00';
+      document.getElementById('startBtn').style.display = 'none';
+      document.getElementById('stopBtn').style.display = 'block';
+      document.getElementById('serverInput').disabled = true;
+
+      addLog('Starting GPS watch...');
+
+      // Watch position continuously
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          currentPos = pos;
+          document.getElementById('lat').textContent = pos.coords.latitude.toFixed(6);
+          document.getElementById('lng').textContent = pos.coords.longitude.toFixed(6);
+          document.getElementById('speed').textContent =
+            `${Math.round((pos.coords.speed || 0) * 3.6)} km/h`;
+          document.getElementById('accuracy').textContent =
+            `${Math.round(pos.coords.accuracy)} m`;
+        },
+        (err) => {
+          addLog(`GPS Error: ${err.message}`, 'error');
+          document.getElementById('connStatus').textContent = '● GPS ERROR';
+          document.getElementById('connStatus').style.color = '#ff4444';
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 5000
+        }
+      );
+
+      // Send to backend every 1 second
+      sendInterval = setInterval(sendGPS, 1000);
+      addLog(`Sending to ${serverUrl}/gps every 1s`);
+    }
+
+    function stopSending() {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+      if (sendInterval) {
+        clearInterval(sendInterval);
+        sendInterval = null;
+      }
+      currentPos = null;
+
+      document.getElementById('connStatus').textContent = '● STOPPED';
+      document.getElementById('connStatus').style.color = '#ff4444';
+      document.getElementById('connStatus').className = 'status-value';
+      document.getElementById('startBtn').style.display = 'block';
+      document.getElementById('stopBtn').style.display = 'none';
+      document.getElementById('serverInput').disabled = false;
+      addLog('Stopped sending.');
+    }
+  </script>
+</body>
+</html>
