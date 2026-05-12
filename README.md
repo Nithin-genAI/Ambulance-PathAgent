@@ -232,6 +232,14 @@ Phase 6 → SIH submission + BBMP Smart City pilot proposal
 
 ---
 
+Result
+
+🏆 1st Prize — AI & DS Department Hackathon
+
+Built in under 4 hours using real GPS, real traffic data, real ML, and a genuine belief that technology should save lives.
+
+Built with 💚 for Bengaluru. For every minute that matters.
+
 
 
 
